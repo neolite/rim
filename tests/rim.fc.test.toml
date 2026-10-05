@@ -15,3 +15,10 @@ boot = "direct"
 kernel = "linux"
 disk = { root = "64M", data = "64M" }
 net = { address = "10.0.2.15/24", gateway = "10.0.2.2", dns = "10.0.2.3" }
+
+[target.fc-x86]
+boot = "direct"
+arch = "x86_64"
+kernel = "linux"
+disk = { root = "64M", data = "64M" }
+net = { address = "10.0.2.15/24", gateway = "10.0.2.2", dns = "10.0.2.3" }

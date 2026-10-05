@@ -4,15 +4,27 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 docker info >/dev/null 2>&1 || { echo "rim: Docker не запущен" >&2; exit 1; }
-docker build -q -t rim-toolchain "$ROOT/docker" >/dev/null
+
+# ./rim [--arch aarch64|x86_64] <команда>. Чужая архитектура — тот же Dockerfile под эмуляцией
+# (на Apple Silicon это Rosetta в OrbStack/Docker Desktop); пакеты собираются нативно для неё.
+ARCH=aarch64
+if [ "${1:-}" = --arch ]; then ARCH="${2:?--arch: aarch64 или x86_64}"; shift 2; fi
+case "$ARCH" in
+  aarch64) PLATFORM=linux/arm64; IMAGE=rim-toolchain;        CARGO_VOL=rim-cargo;        CARGO_DIR=cargo-linux ;;
+  x86_64)  PLATFORM=linux/amd64; IMAGE=rim-toolchain-x86_64; CARGO_VOL=rim-cargo-x86_64; CARGO_DIR=cargo-linux-x86_64 ;;
+  *) echo "rim: --arch: aarch64 или x86_64, а не $ARCH" >&2; exit 1 ;;
+esac
+
+docker build -q --platform "$PLATFORM" --build-arg RIM_ARCH="$ARCH" --build-arg RIM_CARGO_DIR="$CARGO_DIR" \
+  -t "$IMAGE" "$ROOT/docker" >/dev/null
 # ID образа меняется на каждой сборке (дата в конфиге), слои — нет: их и берём ключом кэша.
-# Плюс ENV: строка ENV слоя не создаёт, а сборку меняет (SOURCE_DATE_EPOCH, RUSTFLAGS).
-TOOLCHAIN_ID="$(docker image inspect -f '{{json .RootFS.Layers}}{{json .Config.Env}}' rim-toolchain | shasum -a 256 | cut -d' ' -f1)"
-BIN=/rim/out/cargo-linux/aarch64-alpine-linux-musl/release
+# Плюс ENV: строка ENV слоя не создаёт, а сборку меняет (SOURCE_DATE_EPOCH, RUSTFLAGS, цель cargo).
+TOOLCHAIN_ID="$(docker image inspect -f '{{json .RootFS.Layers}}{{json .Config.Env}}' "$IMAGE" | shasum -a 256 | cut -d' ' -f1)"
+BIN="/rim/out/$CARGO_DIR/$ARCH-alpine-linux-musl/release"
 
 TTY=(); [ -t 1 ] && TTY=(-t)
-exec docker run --rm ${TTY[@]+"${TTY[@]}"} \
-  -v "$ROOT:/rim" -v rim-cargo:/cargo \
+exec docker run --rm --platform "$PLATFORM" ${TTY[@]+"${TTY[@]}"} \
+  -v "$ROOT:/rim" -v "$CARGO_VOL:/cargo" \
   -e RIM_TOOLCHAIN_ID="$TOOLCHAIN_ID" \
   -e RIM_INIT_BIN="$BIN/rim-init" \
-  rim-toolchain sh -c 'cargo build -q --release -p rim-init -p rim-build && exec '"$BIN"'/rim-build "$@"' rim "$@"
+  "$IMAGE" sh -c 'cargo build -q --release -p rim-init -p rim-build && exec '"$BIN"'/rim-build "$@"' rim "$@"

@@ -6,8 +6,12 @@ RUN apk add --no-cache \
       curl tar xz bzip2 coreutils findutils python3 file
 # Явная цель: с ней RUSTFLAGS (crt-static) применяются только к целевым бинарникам,
 # а не к proc-macro вроде serde_derive, которые musl статикой собрать не может.
-ENV CARGO_BUILD_TARGET=aarch64-alpine-linux-musl \
-    CARGO_TARGET_DIR=/rim/out/cargo-linux \
+# ARG после RUN: слой с пакетами от него не зависит, а при значении по умолчанию ENV
+# совпадает с прежним — id тулчейна arm64 и ключи кэша пакетов не меняются.
+ARG RIM_ARCH=aarch64
+ARG RIM_CARGO_DIR=cargo-linux
+ENV CARGO_BUILD_TARGET=${RIM_ARCH}-alpine-linux-musl \
+    CARGO_TARGET_DIR=/rim/out/${RIM_CARGO_DIR} \
     CARGO_HOME=/cargo \
     RUSTFLAGS="-C target-feature=+crt-static" \
     SOURCE_DATE_EPOCH=1767225600

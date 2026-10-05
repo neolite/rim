@@ -32,9 +32,41 @@ net = { address = "172.16.0.2/30", gateway = "172.16.0.1", dns = "1.1.1.1" }
 
 Пути в JSON — имена соседних файлов, поэтому Firecracker запускается из этого каталога.
 
+## x86_64
+
+Тот же манифест, в таргете `arch = "x86_64"` (только с `boot = "direct"`):
+
+```toml
+[target.fc-x86]
+boot = "direct"
+arch = "x86_64"
+kernel = "linux"
+disk = { root = "64M", data = "256M" }
+net = { address = "172.16.0.2/30", gateway = "172.16.0.1", dns = "1.1.1.1" }
+```
+
+```sh
+./rim --arch x86_64 build --target fc-x86 --out out/fc-x86/rim-fc.img
+```
+
+Сборка идёт тем же Dockerfile под `linux/amd64` (на Apple Silicon — Rosetta в OrbStack/Docker
+Desktop). Ядро — несжатый ELF `rim-fc.vmlinux`, как рекомендует Firecracker для x86.
+
+Отличие в выключении: на x86 у Firecracker нет управления питанием, `poweroff` гостя процесс
+не завершает. Поэтому в cmdline x86 стоят `reboot=k` (сброс через i8042, его Firecracker
+перехватывает и завершается) и `rim.poweroff=reboot` — init выполняет poweroff как
+перезагрузку. Для пользователя разницы нет: `poweroff` завершает firecracker.
+
+Хост для x86 не обязан быть bare metal: подойдёт облачная VM с вложенной виртуализацией
+(`/dev/kvm` внутри VM). Firecracker официально проверяется на bare metal, во вложенной
+виртуализации работает, но медленнее — для замеров это нужно учитывать.
+
+Локально: `ARCH=x86_64 ./scripts/test-boot-fc.sh` (QEMU `-M microvm`; на Apple Silicon
+без ускорения — проверка корректности, не скорости).
+
 ## Хост
 
-Нужен Linux aarch64 с `/dev/kvm`. Обычная облачная VM не подойдёт: вложенной виртуализации
+aarch64: нужен Linux aarch64 с `/dev/kvm`. Обычная облачная VM не подойдёт: вложенной виртуализации
 на ARM у облаков нет. Подходят bare-metal инстансы на Graviton2 и новее (AWS `m6g.metal`,
 `c6g.metal`, `c7g.metal`, `m7g.metal`); Graviton1 (`a1.metal`) Firecracker не поддерживает.
 Выделенный ARM-сервер — если его процессор не старше Neoverse N1. Mac на Apple Silicon не подходит (нет KVM); локально таргет
@@ -43,8 +75,8 @@ net = { address = "172.16.0.2/30", gateway = "172.16.0.1", dns = "1.1.1.1" }
 ## Запуск
 
 ```sh
-# 1. Firecracker (официальный релиз, aarch64)
-ARCH=aarch64
+# 1. Firecracker (официальный релиз; на x86 — ARCH=x86_64)
+ARCH=$(uname -m)
 VER=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/firecracker-microvm/firecracker/releases/latest | sed 's|.*/||')
 curl -fsSL "https://github.com/firecracker-microvm/firecracker/releases/download/$VER/firecracker-$VER-$ARCH.tgz" | tar xz
 sudo install release-$VER-$ARCH/firecracker-$VER-$ARCH /usr/local/bin/firecracker

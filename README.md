@@ -1,6 +1,6 @@
 # rim
 
-Минимальная неизменяемая ОС для aarch64: ядро Linux, свой PID 1 на Rust, busybox и dropbear.
+Минимальная неизменяемая ОС для aarch64 (и x86_64 — гостем Firecracker): ядро Linux, свой PID 1 на Rust, busybox и dropbear.
 Вся система описывается одним файлом `rim.toml`, из которого собирается бит-в-бит
 воспроизводимый образ диска.
 
@@ -56,7 +56,8 @@ libc и пакетного менеджера в системе нет. Нет �
 arm64, UEFI, диск virtio-blk/virtio-scsi, сеть virtio-net с DHCP. Выкладка на Hetzner CAX —
 [docs/deploy-hetzner.md](docs/deploy-hetzner.md).
 
-Гостем microVM Firecracker (без UEFI, статическая сеть) — таргет `boot = "direct"`,
+Гостем microVM Firecracker (без UEFI, статическая сеть; aarch64 и x86_64 через `arch = "x86_64"`
+и `./rim --arch x86_64`) — таргет `boot = "direct"`,
 см. [docs/firecracker.md](docs/firecracker.md); локальная проверка — `./scripts/test-boot-fc.sh`.
 
 Тесты создают ssh-ключ заново на каждый прогон (`out/test-key/`, вне git); в `tests/*.toml` вместо
