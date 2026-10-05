@@ -1,0 +1,15 @@
+[system]
+hostname = "rim"
+packages = ["busybox", "dropbear"]
+ssh_authorized_keys = ["ssh-ed25519 AAAA... ваш-ключ"]
+
+[service.network]
+exec = ["/sbin/udhcpc", "-f", "-i", "eth0", "-s", "/etc/rim/udhcpc.script"]
+
+[service.sshd]
+exec = ["/bin/dropbear", "-F", "-s", "-g", "-p", "22", "-P", "/run/dropbear.pid", "-r", "/data/ssh/host_ed25519"]
+
+[target.virt]
+boot = "uefi-uki"
+kernel = "linux"
+disk = { esp = "128M", root = "256M", data = "64M" }

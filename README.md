@@ -22,6 +22,7 @@
 Нужны Docker (на macOS — OrbStack/Docker Desktop) и, для теста, QEMU (`brew install qemu`).
 
 ```sh
+cp rim.example.toml rim.toml        # rim.toml в .gitignore: вставьте свой ssh-ключ
 ./rim build                         # rim.toml → out/rim.img
 ./scripts/test-boot.sh              # загрузка в QEMU и 14 проверок снаружи
 cargo test --workspace              # юнит-тесты
