@@ -56,6 +56,9 @@ libc и пакетного менеджера в системе нет. Нет �
 arm64, UEFI, диск virtio-blk/virtio-scsi, сеть virtio-net с DHCP. Выкладка на Hetzner CAX —
 [docs/deploy-hetzner.md](docs/deploy-hetzner.md).
 
+Гостем microVM Firecracker (без UEFI, статическая сеть) — таргет `boot = "direct"`,
+см. [docs/firecracker.md](docs/firecracker.md); локальная проверка — `./scripts/test-boot-fc.sh`.
+
 `tests/keys/id_ed25519` — ключ **только для тестового образа**, не используйте его нигде ещё.
 
 ## Лицензия

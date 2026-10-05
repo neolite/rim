@@ -75,6 +75,26 @@ impl CappedLog {
     }
 }
 
+/// Строки DNS из /proc/net/pnp (ядро настроило сеть по `ip=`) в формате resolv.conf.
+/// `None`, если nameserver нет: тогда resolv.conf не трогаем (его может писать udhcpc).
+pub fn resolv_from_pnp(pnp: &str) -> Option<String> {
+    let mut out = String::new();
+    let mut has_ns = false;
+    for l in pnp.lines() {
+        if let Some(ns) = l.strip_prefix("nameserver ") {
+            if ns.trim() == "0.0.0.0" {
+                continue;
+            }
+            has_ns = true;
+        } else if !l.starts_with("domain ") {
+            continue; // #MANUAL, #PROTO, bootserver — не для resolv.conf
+        }
+        out += l;
+        out.push('\n');
+    }
+    has_ns.then_some(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -157,5 +177,21 @@ mod tests {
     fn authorized_keys_one_per_line() {
         let k = vec!["ssh-ed25519 AAA a".to_string(), "ssh-ed25519 BBB b".to_string()];
         assert_eq!(authorized_keys(&k), "ssh-ed25519 AAA a\nssh-ed25519 BBB b\n");
+    }
+
+    #[test]
+    fn resolv_from_pnp_keeps_nameservers_and_domain() {
+        let pnp = "#MANUAL\ndomain example.org\nnameserver 10.0.2.3\nnameserver 1.1.1.1\nbootserver 10.0.2.2\n";
+        assert_eq!(
+            resolv_from_pnp(pnp).as_deref(),
+            Some("domain example.org\nnameserver 10.0.2.3\nnameserver 1.1.1.1\n")
+        );
+    }
+
+    #[test]
+    fn resolv_from_pnp_none_without_nameserver() {
+        assert_eq!(resolv_from_pnp("#MANUAL\n"), None);
+        assert_eq!(resolv_from_pnp(""), None);
+        assert_eq!(resolv_from_pnp("#MANUAL\nnameserver 0.0.0.0\n"), None);
     }
 }

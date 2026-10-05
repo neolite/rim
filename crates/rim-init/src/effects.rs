@@ -11,7 +11,7 @@ use nix::sys::signalfd::{SfdFlags, SignalFd};
 use nix::sys::wait::{WaitPidFlag, WaitStatus, waitpid};
 use nix::unistd::{Pid, sethostname, setsid, sync};
 use std::fs::{self, File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::io::{BufReader, Read, Write};
 use std::os::fd::AsFd;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::process::CommandExt;
@@ -115,6 +115,10 @@ fn prepare(console: &Console) -> Result<rim_manifest::Manifest, String> {
 
     sethostname(&m.system.hostname).map_err(|e| format!("sethostname: {e}"))?;
     let _ = Command::new("/sbin/ip").args(["link", "set", "lo", "up"]).status();
+    // boot = "direct": сеть уже поднята ядром по ip=, DNS оно оставило в /proc/net/pnp.
+    if let Some(resolv) = fs::read_to_string("/proc/net/pnp").ok().as_deref().and_then(setup::resolv_from_pnp) {
+        fs::write("/run/resolv.conf", resolv).map_err(|e| format!("/run/resolv.conf: {e}"))?;
+    }
     Ok(m)
 }
 
