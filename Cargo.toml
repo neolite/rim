@@ -1,0 +1,23 @@
+[workspace]
+resolver = "3"
+members = ["crates/rim-manifest"]
+
+[workspace.package]
+edition = "2024"
+version = "0.1.0"
+license = "MIT"
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+toml = "0.9"
+sha2 = "0.10"
+crc32fast = "1"
+nix = { version = "0.30", features = ["mount", "signal", "process", "reboot", "hostname", "poll", "fs"] }
+rim-manifest = { path = "crates/rim-manifest" }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
