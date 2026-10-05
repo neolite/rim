@@ -69,6 +69,7 @@ impl Supervisor {
         Supervisor { svcs, ready: false, shutdown: None }
     }
 
+    #[cfg_attr(not(test), allow(dead_code))]
     pub fn state(&self, name: &str) -> Option<&SvcState> {
         self.svcs.get(name).map(|s| &s.state)
     }
