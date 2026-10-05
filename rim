@@ -6,7 +6,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 docker info >/dev/null 2>&1 || { echo "rim: Docker не запущен" >&2; exit 1; }
 docker build -q -t rim-toolchain "$ROOT/docker" >/dev/null
 # ID образа меняется на каждой сборке (дата в конфиге), слои — нет: их и берём ключом кэша.
-TOOLCHAIN_ID="$(docker image inspect -f '{{json .RootFS.Layers}}' rim-toolchain | shasum -a 256 | cut -d' ' -f1)"
+# Плюс ENV: строка ENV слоя не создаёт, а сборку меняет (SOURCE_DATE_EPOCH, RUSTFLAGS).
+TOOLCHAIN_ID="$(docker image inspect -f '{{json .RootFS.Layers}}{{json .Config.Env}}' rim-toolchain | shasum -a 256 | cut -d' ' -f1)"
 BIN=/rim/out/cargo-linux/aarch64-alpine-linux-musl/release
 
 TTY=(); [ -t 1 ] && TTY=(-t)

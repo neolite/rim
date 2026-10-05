@@ -14,7 +14,6 @@ use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-const EPOCH: &str = "1767225600";
 const STUB: &str = "/usr/lib/systemd/boot/efi/linuxaa64.efi.stub";
 
 pub fn build(root: &Path, manifest_path: &Path, target: &str, out: &Path) -> Result<String, String> {
@@ -23,6 +22,9 @@ pub fn build(root: &Path, manifest_path: &Path, target: &str, out: &Path) -> Res
     let m = rim_manifest::parse(&text).map_err(|e| format!("{}: {e}", manifest_path.display()))?;
     let t = m.target.get(target).ok_or_else(|| format!("нет [target.{target}]"))?;
     let tc = std::env::var("RIM_TOOLCHAIN_ID").unwrap_or_else(|_| "dev".into());
+    // Единственный источник — ENV тулчейна (docker/Dockerfile): он же входит в ключ кэша пакетов.
+    let epoch = std::env::var("SOURCE_DATE_EPOCH").map_err(|_| "SOURCE_DATE_EPOCH не задан (запускайте через ./rim)")?;
+    let epoch = epoch.as_str();
 
     let mut trees = Vec::new();
     for name in &m.system.packages {
@@ -52,13 +54,13 @@ pub fn build(root: &Path, manifest_path: &Path, target: &str, out: &Path) -> Res
     let init_bin = PathBuf::from(std::env::var("RIM_INIT_BIN").map_err(|_| "RIM_INIT_BIN не задан (запускайте через ./rim)")?);
     fs::copy(&init_bin, rootdir.join("sbin/init")).map_err(|e| format!("{}: {e}", init_bin.display()))?;
     fs::set_permissions(rootdir.join("sbin/init"), fs::Permissions::from_mode(0o755)).map_err(|e| e.to_string())?;
-    sh::run(Command::new("find").arg(&rootdir).args(["-exec", "touch", "-h", "-d", &format!("@{EPOCH}"), "{}", "+"]))?;
+    sh::run(Command::new("find").arg(&rootdir).args(["-exec", "touch", "-h", "-d", &format!("@{epoch}"), "{}", "+"]))?;
 
     let root_uuid = ids::to_string(&ids::derive(&bytes, "fs:root"));
     let root_img = work.join("root.erofs");
     sh::run(
         Command::new("mkfs.erofs")
-            .arg(format!("-T{EPOCH}"))
+            .arg(format!("-T{epoch}"))
             .arg(format!("-U{root_uuid}"))
             .arg("--all-root")
             // Без xattr: на bind-mount с macOS они не читаются, да и хостовые атрибуты в образе ни к чему.
@@ -93,14 +95,14 @@ pub fn build(root: &Path, manifest_path: &Path, target: &str, out: &Path) -> Res
     let esp_sectors = t.disk.esp.0 / SECTOR;
     File::create(&esp_img).and_then(|f| f.set_len(t.disk.esp.0)).map_err(|e| e.to_string())?;
     let mt = |args: &[&str]| -> Result<(), String> {
-        sh::run(Command::new(args[0]).args(&args[1..]).env("SOURCE_DATE_EPOCH", EPOCH).env("MTOOLS_SKIP_CHECK", "1"))
+        sh::run(Command::new(args[0]).args(&args[1..]).env("SOURCE_DATE_EPOCH", epoch).env("MTOOLS_SKIP_CHECK", "1"))
     };
     let esp = esp_img.to_string_lossy().into_owned();
     let serial = format!("{:08x}", ids::fat_serial(&bytes, "fs:esp"));
     mt(&["mformat", "-i", &esp, "-F", "-v", "ESP", "-N", &serial, "-T", &esp_sectors.to_string(), "-h", "64", "-s", "32", "::"])?;
     mt(&["mmd", "-i", &esp, "::/EFI", "::/EFI/BOOT", "::/EFI/rim"])?;
     let uki_s = uki.to_string_lossy().into_owned();
-    sh::run(Command::new("touch").args(["-d", &format!("@{EPOCH}"), &uki_s]))?;
+    sh::run(Command::new("touch").args(["-d", &format!("@{epoch}"), &uki_s]))?;
     mt(&["mcopy", "-m", "-i", &esp, &uki_s, "::/EFI/BOOT/BOOTAA64.EFI"])?;
     mt(&["mcopy", "-m", "-i", &esp, &uki_s, "::/EFI/rim/rim-A.efi"])?;
 
@@ -119,7 +121,7 @@ pub fn build(root: &Path, manifest_path: &Path, target: &str, out: &Path) -> Res
             .arg(&empty)
             .arg(&data_img)
             .arg(format!("{}k", t.disk.data.0 / 1024))
-            .env("E2FSPROGS_FAKE_TIME", EPOCH),
+            .env("E2FSPROGS_FAKE_TIME", epoch),
     )?;
 
     // 6. Склейка
