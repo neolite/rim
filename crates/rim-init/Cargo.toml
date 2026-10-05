@@ -1,0 +1,11 @@
+[package]
+name = "rim-init"
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+
+[dependencies]
+rim-manifest.workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nix.workspace = true
