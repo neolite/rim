@@ -1,3 +1,6 @@
+// Вне Linux core и setup живут только ради тестов: их потребитель (effects) не собирается.
+#![cfg_attr(not(target_os = "linux"), allow(dead_code))]
+
 mod core;
 mod setup;
 #[cfg(target_os = "linux")]
