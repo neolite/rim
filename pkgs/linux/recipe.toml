@@ -1,0 +1,5 @@
+version = "6.18.55"
+url = "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.55.tar.xz"
+# Из sha256sums.asc, подпись проверена ключом kernel.org autosigner (632D3A06589DA6B1).
+sha256 = "f410638061a165c12f42ab871d2f3fcd525515359b5faeee80969cff84524df9"
+kind = "kernel"
