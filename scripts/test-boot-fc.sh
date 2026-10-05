@@ -4,13 +4,15 @@
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="$ROOT/out/fc-test"
-"$ROOT/rim" build --manifest tests/rim.fc.test.toml --target fc --out out/fc-test/rim-fc.img >/dev/null \
-  || { echo "FAIL сборка"; exit 1; }
+. "$ROOT/scripts/lib-testkey.sh"
+new_test_key
+MANIFEST="$(test_manifest tests/rim.fc.test.toml)" || { echo "FAIL тестовый ключ"; exit 1; }
+"$ROOT/rim" build --manifest "$MANIFEST" --target fc --out out/fc-test/rim-fc.img >/dev/null || { echo "FAIL сборка"; exit 1; }
 
 WORK="$(mktemp -d)"
 QPID=""
 trap 'kill "$QPID" 2>/dev/null; rm -rf "$WORK"' EXIT
-KEY="$WORK/key"; cp "$ROOT/tests/keys/id_ed25519" "$KEY"; chmod 600 "$KEY"
+KEY="$TEST_KEY"
 LOG="$WORK/serial.log"; : > "$LOG"
 PORT=2223
 FAILED=0

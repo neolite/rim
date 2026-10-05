@@ -59,7 +59,8 @@ arm64, UEFI, диск virtio-blk/virtio-scsi, сеть virtio-net с DHCP. Вы�
 Гостем microVM Firecracker (без UEFI, статическая сеть) — таргет `boot = "direct"`,
 см. [docs/firecracker.md](docs/firecracker.md); локальная проверка — `./scripts/test-boot-fc.sh`.
 
-`tests/keys/id_ed25519` — ключ **только для тестового образа**, не используйте его нигде ещё.
+Тесты создают ssh-ключ заново на каждый прогон (`out/test-key/`, вне git); в `tests/*.toml` вместо
+ключа заглушка, так что собранный из них образ не пускает никого.
 
 ## Лицензия
 

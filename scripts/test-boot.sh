@@ -2,13 +2,16 @@
 # Грузит тестовый образ в QEMU (HVF) и проверяет систему снаружи, как пользователь VPS.
 set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-"$ROOT/rim" build --manifest tests/rim.test.toml --out out/rim-test.img >/dev/null || { echo "FAIL сборка"; exit 1; }
+. "$ROOT/scripts/lib-testkey.sh"
+new_test_key
+MANIFEST="$(test_manifest tests/rim.test.toml)" || { echo "FAIL тестовый ключ"; exit 1; }
+"$ROOT/rim" build --manifest "$MANIFEST" --out out/rim-test.img >/dev/null || { echo "FAIL сборка"; exit 1; }
 
 WORK="$(mktemp -d)"
 trap 'kill "$QPID" 2>/dev/null; rm -rf "$WORK"' EXIT
 cp "$ROOT/out/rim-test.img" "$WORK/disk.img"
 truncate -s 2G "$WORK/disk.img"         # диск VPS больше образа: резервная GPT не в конце
-KEY="$WORK/key"; cp "$ROOT/tests/keys/id_ed25519" "$KEY"; chmod 600 "$KEY"
+KEY="$TEST_KEY"
 LOG="$WORK/serial.log"; : > "$LOG"
 FW="$(brew --prefix qemu)/share/qemu/edk2-aarch64-code.fd"
 PORT=2222

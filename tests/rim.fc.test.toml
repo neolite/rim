@@ -1,7 +1,8 @@
 [system]
 hostname = "rim-fc-test"
 packages = ["busybox", "dropbear"]
-ssh_authorized_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOk3SkcD6YmolETu6o/IXZiuaO2K/7i5DLiBrprdSP5H rim-test-key"]
+# Заглушка: настоящий ключ подставляет scripts/lib-testkey.sh, новый на каждый прогон.
+ssh_authorized_keys = ["ssh-ed25519 TEST-KEY-PLACEHOLDER"]
 
 # Без udhcpc: сеть поднимает ядро по ip= (как в Firecracker, где DHCP нет).
 

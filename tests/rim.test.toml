@@ -1,7 +1,8 @@
 [system]
 hostname = "rim-test"
 packages = ["busybox", "dropbear"]
-ssh_authorized_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOk3SkcD6YmolETu6o/IXZiuaO2K/7i5DLiBrprdSP5H rim-test-key"]
+# Заглушка: настоящий ключ подставляет scripts/lib-testkey.sh, новый на каждый прогон.
+ssh_authorized_keys = ["ssh-ed25519 TEST-KEY-PLACEHOLDER"]
 
 [service.network]
 exec = ["/sbin/udhcpc", "-f", "-i", "eth0", "-s", "/etc/rim/udhcpc.script"]
