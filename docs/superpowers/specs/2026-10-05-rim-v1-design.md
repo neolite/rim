@@ -118,7 +118,7 @@ exec = ["/bin/udhcpc", "-f", "-i", "eth0", "-s", "/etc/rim/udhcpc.script"]
 restart = "always"
 
 [service.sshd]
-exec = ["/bin/dropbear", "-F", "-E", "-s", "-g", "-r", "/data/ssh/host_ed25519"]
+exec = ["/bin/dropbear", "-F", "-s", "-g", "-r", "/data/ssh/host_ed25519"]
 restart = "always"
 
 [target.virt]

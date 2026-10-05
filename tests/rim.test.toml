@@ -7,7 +7,7 @@ ssh_authorized_keys = ["ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOk3SkcD6YmolETu6o/I
 exec = ["/sbin/udhcpc", "-f", "-i", "eth0", "-s", "/etc/rim/udhcpc.script"]
 
 [service.sshd]
-exec = ["/bin/dropbear", "-F", "-E", "-s", "-g", "-p", "22", "-P", "/run/dropbear.pid", "-r", "/data/ssh/host_ed25519"]
+exec = ["/bin/dropbear", "-F", "-s", "-g", "-p", "22", "-P", "/run/dropbear.pid", "-r", "/data/ssh/host_ed25519"]
 
 [target.virt]
 boot = "uefi-uki"
