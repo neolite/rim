@@ -57,6 +57,9 @@ hostname_ok() { [ "$(rsh hostname)" = rim-fc-test ]; }
 ip_from_kernel() { rsh 'ip -4 addr show eth0' | grep -q 'inet 10.0.2.15/24'; }
 no_dhcp_client() { ! rsh 'pidof udhcpc'; }
 resolv_ok() { rsh 'cat /etc/resolv.conf' | grep -qx 'nameserver 10.0.2.3'; }
+# 8250 у QEMU virt нет, но драйвер с OF-привязкой должен быть встроен — его консоль ttyS0 у Firecracker.
+of_serial_built_in() { rsh 'test -d /sys/bus/platform/drivers/of_serial'; }
+no_such_driver() { rsh 'test -d /sys/bus/platform/drivers/no_such_driver'; }
 clock_is_current() { [ "$(rsh 'date +%Y')" -ge 2026 ]; }
 qemu_exits() { for _ in $(seq 1 20); do kill -0 "$QPID" 2>/dev/null || return 0; sleep 1; done; return 1; }
 data_unmounts() { grep -q 'EXT4-fs (vda3): unmounting filesystem' "$LOG"; }
@@ -69,6 +72,8 @@ check "eth0 = 10.0.2.15/24 (ip= ядра)"        ip_from_kernel
 check "DHCP-клиента нет"                      no_dhcp_client
 check "resolv.conf из /proc/net/pnp"          resolv_ok
 check "часы из RTC, не 1970"                  clock_is_current
+check "драйвер 8250/OF (ttyS0) встроен"       of_serial_built_in
+no_such_driver && { echo "FAIL контрольная проверка драйвера ложно-зелёная"; FAILED=1; }
 rsh 'cd /data/root && exec sleep 600' >/dev/null 2>&1 & sleep 1
 rsh poweroff >/dev/null 2>&1
 check "poweroff завершает VM"                 qemu_exits

@@ -185,6 +185,17 @@ fn validate(m: &Manifest) -> Result<(), ManifestError> {
         if t.boot == Boot::UefiUki && t.net.is_some() {
             return err(format!("target.{name}.net: только для boot = \"direct\" (uefi-uki берёт сеть по DHCP)"));
         }
+        if let Some(n) = &t.net {
+            let (a, g) = (u32::from(n.address.addr), u32::from(n.gateway));
+            let mask = u32::MAX.checked_shl(32 - u32::from(n.address.prefix)).unwrap_or(0);
+            // Иначе ядро напишет «Gateway not on directly connected network», и сеть молча не заработает.
+            if (a ^ g) & mask != 0 || a == g || n.address.prefix == 32 {
+                return err(format!(
+                    "target.{name}.net.gateway: {} не в подсети {}/{} (или совпадает с адресом)",
+                    n.gateway, n.address.addr, n.address.prefix
+                ));
+            }
+        }
         let sizes = t.disk.esp.map(|s| ("esp", s)).into_iter().chain([("root", t.disk.root), ("data", t.disk.data)]);
         for (field, size) in sizes {
             if size.0 < MIB || size.0 % MIB != 0 {
@@ -348,6 +359,9 @@ disk = { root = "64M", data = "256M" }"#;
             ("1.2.3/24", "10.0.0.1"),
             ("a.b.c.d/24", "10.0.0.1"),
             ("10.0.0.2/24", "x"),
+            ("10.0.0.2/32", "10.0.0.1"),   // /32: шлюз заведомо не в подсети
+            ("10.0.0.2/24", "10.0.1.1"),   // шлюз вне подсети — ядро не поставит маршрут
+            ("10.0.0.2/24", "10.0.0.2"),   // шлюз = свой адрес
         ] {
             let m = with_fc(&format!("{FC}\nnet = {{ address = \"{addr}\", gateway = \"{gw}\" }}"));
             assert!(parse(&m).is_err(), "{addr} {gw} принят");

@@ -33,12 +33,14 @@ net = { address = "172.16.0.2/30", gateway = "172.16.0.1", dns = "1.1.1.1" }
 - `disk.esp` становится необязательным: обязателен для `uefi-uki`, запрещён для `direct`
   (ошибка валидации называет поле).
 - `net` — необязательный блок: `address` (IPv4/префикс 1..=32), `gateway` (IPv4),
-  `dns` (IPv4, необязательно). Допустим только для `direct` (для `uefi-uki` сеть даёт DHCP).
+  `dns` (IPv4, необязательно). Шлюз обязан лежать в подсети адреса и не совпадать с ним
+  (поэтому /32 недопустим). Допустим только для `direct` (для `uefi-uki` сеть даёт DHCP).
 
 ## Ядро
 
 Один пакет `linux` для обоих таргетов. В `pkgs/linux/virt.config` добавляются
-`SERIAL_8250`, `SERIAL_8250_CONSOLE`, `SERIAL_OF_PLATFORM`, `ARM_AMBA`, `IP_PNP`.
+`SERIAL_8250`, `SERIAL_8250_CONSOLE`, `SERIAL_OF_PLATFORM`, `IP_PNP`
+(`ARM_AMBA` arm64 включает сам).
 `check-config.sh` проверяет, что все они дожили до итогового `.config`.
 
 ## init

@@ -6,8 +6,8 @@
 **Ветка:** feat/firecracker
 
 ## Global Constraints
-- Таргет `virt` не меняется: `./rim build --manifest tests/rim.test.toml` даёт тот же sha256,
-  что на main до работ — `30c1c463728d53535094d1ae5e8e42934a778a0500a4a4399f875a8419de8b0d`.
+- Таргет `virt` не меняется: ESP, GPT и data побайтно как на main; root-A отличается только
+  бинарником init (он линкует rim-manifest) — см. Ruling Task 2 в ledger.
 - `scripts/test-boot.sh` — 14/14 ok; `cargo test --workspace` зелёный, без предупреждений.
 - Сборка `fc` детерминирована (cmp трёх артефактов).
 
