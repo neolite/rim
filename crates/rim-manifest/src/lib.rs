@@ -54,11 +54,32 @@ pub enum Restart {
 #[serde(deny_unknown_fields)]
 pub struct Target {
     pub boot: Boot,
+    #[serde(default)]
+    pub arch: Arch,
     pub kernel: String,
     pub disk: Disk,
     /// Статическая сеть через `ip=` ядра; только для `direct` (на VPS сеть даёт DHCP).
     #[serde(default)]
     pub net: Option<Net>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
+pub enum Arch {
+    #[default]
+    #[serde(rename = "aarch64")]
+    Aarch64,
+    #[serde(rename = "x86_64")]
+    X86_64,
+}
+
+impl Arch {
+    /// Как в `std::env::consts::ARCH` и в триплете `<arch>-alpine-linux-musl`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Arch::Aarch64 => "aarch64",
+            Arch::X86_64 => "x86_64",
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -181,6 +202,9 @@ fn validate(m: &Manifest) -> Result<(), ManifestError> {
             (Boot::UefiUki, false) => return err(format!("target.{name}.disk.esp: обязателен для boot = \"uefi-uki\"")),
             (Boot::Direct, true) => return err(format!("target.{name}.disk.esp: при boot = \"direct\" ESP не нужен")),
             _ => {}
+        }
+        if t.arch == Arch::X86_64 && t.boot != Boot::Direct {
+            return err(format!("target.{name}.arch: x86_64 пока только с boot = \"direct\" (Firecracker)"));
         }
         if t.boot == Boot::UefiUki && t.net.is_some() {
             return err(format!("target.{name}.net: только для boot = \"direct\" (uefi-uki берёт сеть по DHCP)"));
@@ -366,5 +390,31 @@ disk = { root = "64M", data = "256M" }"#;
             let m = with_fc(&format!("{FC}\nnet = {{ address = \"{addr}\", gateway = \"{gw}\" }}"));
             assert!(parse(&m).is_err(), "{addr} {gw} принят");
         }
+    }
+
+    #[test]
+    fn arch_defaults_to_aarch64() {
+        let m = parse(&with_fc(FC)).unwrap();
+        assert_eq!(m.target["virt"].arch, Arch::Aarch64);
+        assert_eq!(m.target["fc"].arch, Arch::Aarch64);
+    }
+
+    #[test]
+    fn x86_64_direct_ok() {
+        let m = parse(&with_fc(&format!("{FC}\narch = \"x86_64\""))).unwrap();
+        assert_eq!(m.target["fc"].arch, Arch::X86_64);
+    }
+
+    #[test]
+    fn x86_64_uki_rejected() {
+        let bad = GOOD.replace("boot = \"uefi-uki\"", "boot = \"uefi-uki\"\narch = \"x86_64\"");
+        let e = parse(&bad).unwrap_err();
+        assert!(e.0.contains("target.virt.arch"), "{e}");
+    }
+
+    #[test]
+    fn unknown_arch_rejected() {
+        let e = parse(&with_fc(&format!("{FC}\narch = \"riscv64\""))).unwrap_err();
+        assert!(e.0.contains("riscv64"), "{e}");
     }
 }

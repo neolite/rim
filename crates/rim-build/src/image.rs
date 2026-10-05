@@ -73,9 +73,9 @@ pub fn build(root: &Path, manifest_path: &Path, target: &str, out: &Path) -> Res
     )?;
 
     // 2. Разметка: нужен PARTUUID root-A для cmdline
-    let (parts, total) = layout::plan(&t.disk);
+    let (parts, total) = layout::plan(&t.disk, t.arch);
     let part_guid = |label: &str| ids::derive(&bytes, &format!("part:{label}"));
-    let cmdline = bootargs::cmdline(t.boot, t.net.as_ref(), &ids::to_string(&part_guid("root-A")));
+    let cmdline = bootargs::cmdline(t.boot, t.arch, t.net.as_ref(), &ids::to_string(&part_guid("root-A")));
     let kernel_image = kdir.join("boot/Image");
 
     // 3–4. UKI и ESP — только при загрузке через UEFI; при direct ядро даёт гипервизор.

@@ -95,6 +95,12 @@ pub fn resolv_from_pnp(pnp: &str) -> Option<String> {
     has_ns.then_some(out)
 }
 
+/// Firecracker на x86: гость не может выключить VM, процесс завершает только перезагрузка
+/// (reboot=k). Сборщик ставит `rim.poweroff=reboot` — тогда poweroff выполняется как reboot.
+pub fn poweroff_as_reboot(cmdline: &str) -> bool {
+    cmdline.split_whitespace().any(|w| w == "rim.poweroff=reboot")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,5 +199,14 @@ mod tests {
         assert_eq!(resolv_from_pnp("#MANUAL\n"), None);
         assert_eq!(resolv_from_pnp(""), None);
         assert_eq!(resolv_from_pnp("#MANUAL\nnameserver 0.0.0.0\n"), None);
+    }
+
+    #[test]
+    fn poweroff_as_reboot_only_with_exact_flag() {
+        assert!(poweroff_as_reboot("root=PARTUUID=x reboot=k rim.poweroff=reboot ip=1.2.3.4\n"));
+        assert!(!poweroff_as_reboot("root=PARTUUID=x console=ttyS0 panic=10\n"));
+        assert!(!poweroff_as_reboot("rim.poweroff=rebootX"));
+        assert!(!poweroff_as_reboot("xrim.poweroff=reboot"));
+        assert!(!poweroff_as_reboot(""));
     }
 }

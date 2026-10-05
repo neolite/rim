@@ -294,7 +294,10 @@ fn finish(kind: ShutdownKind, console: &Console) -> ! {
         }
     }
     sync();
+    // Firecracker x86: poweroff/halt оставили бы VM висеть, процесс завершает только сброс.
+    let as_reboot = fs::read_to_string("/proc/cmdline").is_ok_and(|c| setup::poweroff_as_reboot(&c));
     let mode = match kind {
+        ShutdownKind::Poweroff | ShutdownKind::Halt if as_reboot => RebootMode::RB_AUTOBOOT,
         ShutdownKind::Poweroff => RebootMode::RB_POWER_OFF,
         ShutdownKind::Reboot => RebootMode::RB_AUTOBOOT,
         ShutdownKind::Halt => RebootMode::RB_HALT_SYSTEM,

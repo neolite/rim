@@ -1,30 +1,31 @@
 //! Командная строка ядра и конфиг Firecracker — чистые функции.
 
-use rim_manifest::{Boot, Net};
+use rim_manifest::{Arch, Boot, Net};
 use std::net::Ipv4Addr;
 
 pub fn netmask(prefix: u8) -> Ipv4Addr {
     Ipv4Addr::from(u32::MAX.checked_shl(32 - u32::from(prefix)).unwrap_or(0))
 }
 
-pub fn cmdline(boot: Boot, net: Option<&Net>, root_partuuid: &str) -> String {
+pub fn cmdline(boot: Boot, arch: Arch, net: Option<&Net>, root_partuuid: &str) -> String {
     let base = format!("root=PARTUUID={root_partuuid} rootfstype=erofs ro rootwait");
-    match boot {
+    let mut s = match (boot, arch) {
         // tty0 — графическая консоль VPS (VNC).
-        Boot::UefiUki => format!("{base} console=ttyAMA0 console=tty0 panic=10"),
+        (Boot::UefiUki, _) => format!("{base} console=ttyAMA0 console=tty0 panic=10"),
         // ttyS0 — 8250 у Firecracker, ttyAMA0 — PL011 в локальном QEMU; несуществующую ядро пропустит.
-        Boot::Direct => {
-            let mut s = format!("{base} console=ttyAMA0 console=ttyS0 panic=10");
-            if let Some(n) = net {
-                // ip=<client>:<server>:<gw>:<netmask>:<hostname>:<device>:<autoconf>:<dns0>
-                s += &format!(" ip={}::{}:{}::eth0:off", n.address.addr, n.gateway, netmask(n.address.prefix));
-                if let Some(dns) = n.dns {
-                    s += &format!(":{dns}");
-                }
-            }
-            s
+        (Boot::Direct, Arch::Aarch64) => format!("{base} console=ttyAMA0 console=ttyS0 panic=10"),
+        // У Firecracker на x86 гость не может выключить VM, процесс завершает только сброс через
+        // i8042 (reboot=k); rim.poweroff=reboot велит init выполнять poweroff как перезагрузку.
+        (Boot::Direct, Arch::X86_64) => format!("{base} console=ttyS0 reboot=k panic=10 rim.poweroff=reboot"),
+    };
+    if let (Boot::Direct, Some(n)) = (boot, net) {
+        // ip=<client>:<server>:<gw>:<netmask>:<hostname>:<device>:<autoconf>:<dns0>
+        s += &format!(" ip={}::{}:{}::eth0:off", n.address.addr, n.gateway, netmask(n.address.prefix));
+        if let Some(dns) = n.dns {
+            s += &format!(":{dns}");
         }
     }
+    s
 }
 
 fn json_str(s: &str) -> String {
@@ -79,7 +80,7 @@ pub fn firecracker_json(kernel: &str, disk: &str, boot_args: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use rim_manifest::Cidr;
+    use rim_manifest::{Arch, Cidr};
 
     const UUID: &str = "ef486a02-af19-4c99-b83b-c6b7a2c354fe";
 
@@ -102,7 +103,7 @@ mod tests {
     #[test]
     fn cmdline_uefi_unchanged() {
         assert_eq!(
-            cmdline(Boot::UefiUki, None, UUID),
+            cmdline(Boot::UefiUki, Arch::Aarch64, None, UUID),
             format!("root=PARTUUID={UUID} rootfstype=erofs ro rootwait console=ttyAMA0 console=tty0 panic=10")
         );
     }
@@ -110,7 +111,7 @@ mod tests {
     #[test]
     fn cmdline_direct_with_net() {
         assert_eq!(
-            cmdline(Boot::Direct, Some(&net(Some(Ipv4Addr::new(10, 0, 2, 3)))), UUID),
+            cmdline(Boot::Direct, Arch::Aarch64, Some(&net(Some(Ipv4Addr::new(10, 0, 2, 3)))), UUID),
             format!(
                 "root=PARTUUID={UUID} rootfstype=erofs ro rootwait console=ttyAMA0 console=ttyS0 panic=10 \
                  ip=10.0.2.15::10.0.2.2:255.255.255.0::eth0:off:10.0.2.3"
@@ -120,8 +121,8 @@ mod tests {
 
     #[test]
     fn cmdline_direct_without_dns_and_without_net() {
-        assert!(cmdline(Boot::Direct, Some(&net(None)), UUID).ends_with(" ip=10.0.2.15::10.0.2.2:255.255.255.0::eth0:off"));
-        assert!(cmdline(Boot::Direct, None, UUID).ends_with("console=ttyS0 panic=10"));
+        assert!(cmdline(Boot::Direct, Arch::Aarch64, Some(&net(None)), UUID).ends_with(" ip=10.0.2.15::10.0.2.2:255.255.255.0::eth0:off"));
+        assert!(cmdline(Boot::Direct, Arch::Aarch64, None, UUID).ends_with("console=ttyS0 panic=10"));
     }
 
     #[test]
@@ -154,6 +155,17 @@ mod tests {
   }
 }
 "#
+        );
+    }
+
+    #[test]
+    fn cmdline_direct_x86() {
+        assert_eq!(
+            cmdline(Boot::Direct, Arch::X86_64, Some(&net(Some(Ipv4Addr::new(10, 0, 2, 3)))), UUID),
+            format!(
+                "root=PARTUUID={UUID} rootfstype=erofs ro rootwait console=ttyS0 reboot=k panic=10 rim.poweroff=reboot \
+                 ip=10.0.2.15::10.0.2.2:255.255.255.0::eth0:off:10.0.2.3"
+            )
         );
     }
 }
