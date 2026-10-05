@@ -4,7 +4,7 @@ members = ["crates/rim-manifest", "crates/rim-init", "crates/rim-build"]
 
 [workspace.package]
 edition = "2024"
-version = "0.1.0"
+version = "0.0.1-alpha"
 license = "MIT"
 
 [workspace.dependencies]

@@ -137,7 +137,7 @@ dependencies = [
 
 [[package]]
 name = "rim-build"
-version = "0.1.0"
+version = "0.0.1-alpha"
 dependencies = [
  "crc32fast",
  "rim-manifest",
@@ -148,7 +148,7 @@ dependencies = [
 
 [[package]]
 name = "rim-init"
-version = "0.1.0"
+version = "0.0.1-alpha"
 dependencies = [
  "nix",
  "rim-manifest",
@@ -156,7 +156,7 @@ dependencies = [
 
 [[package]]
 name = "rim-manifest"
-version = "0.1.0"
+version = "0.0.1-alpha"
 dependencies = [
  "serde",
  "toml",
