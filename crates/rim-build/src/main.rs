@@ -1,3 +1,4 @@
+mod bootargs;
 mod gpt;
 mod ids;
 mod image;

@@ -1,5 +1,6 @@
 //! Манифест → rim.img: корень (erofs), UKI, ESP, data, GPT. Без loop-устройств.
 
+use crate::bootargs;
 use crate::gpt::{self, PartEntry, SECTOR};
 use crate::ids;
 use crate::layout;
@@ -7,6 +8,7 @@ use crate::pkg;
 use crate::recipe::Kind;
 use crate::rootfs::{self, Entry};
 use crate::sh;
+use rim_manifest::Boot;
 use sha2::{Digest, Sha256};
 use std::fs::{self, File};
 use std::io::{Seek, SeekFrom, Write};
@@ -73,38 +75,37 @@ pub fn build(root: &Path, manifest_path: &Path, target: &str, out: &Path) -> Res
     // 2. Разметка: нужен PARTUUID root-A для cmdline
     let (parts, total) = layout::plan(&t.disk);
     let part_guid = |label: &str| ids::derive(&bytes, &format!("part:{label}"));
-    let cmdline = format!(
-        "root=PARTUUID={} rootfstype=erofs ro rootwait console=ttyAMA0 console=tty0 panic=10",
-        ids::to_string(&part_guid("root-A"))
-    );
+    let cmdline = bootargs::cmdline(t.boot, t.net.as_ref(), &ids::to_string(&part_guid("root-A")));
+    let kernel_image = kdir.join("boot/Image");
 
-    // 3. UKI
-    let uki = work.join("rim-A.efi");
-    sh::run(
-        Command::new("ukify")
-            .arg("build")
-            .arg(format!("--linux={}", kdir.join("boot/Image").display()))
-            .arg(format!("--stub={STUB}"))
-            .arg(format!("--cmdline={cmdline}"))
-            .arg("--os-release=NAME=rim\nID=rim\nPRETTY_NAME=rim v1\n")
-            .arg(format!("--output={}", uki.display())),
-    )?;
-
-    // 4. ESP
+    // 3–4. UKI и ESP — только при загрузке через UEFI; при direct ядро даёт гипервизор.
     let esp_img = work.join("esp.img");
-    let esp_sectors = t.disk.esp.0 / SECTOR;
-    File::create(&esp_img).and_then(|f| f.set_len(t.disk.esp.0)).map_err(|e| e.to_string())?;
-    let mt = |args: &[&str]| -> Result<(), String> {
-        sh::run(Command::new(args[0]).args(&args[1..]).env("SOURCE_DATE_EPOCH", epoch).env("MTOOLS_SKIP_CHECK", "1"))
-    };
-    let esp = esp_img.to_string_lossy().into_owned();
-    let serial = format!("{:08x}", ids::fat_serial(&bytes, "fs:esp"));
-    mt(&["mformat", "-i", &esp, "-F", "-v", "ESP", "-N", &serial, "-T", &esp_sectors.to_string(), "-h", "64", "-s", "32", "::"])?;
-    mt(&["mmd", "-i", &esp, "::/EFI", "::/EFI/BOOT", "::/EFI/rim"])?;
-    let uki_s = uki.to_string_lossy().into_owned();
-    sh::run(Command::new("touch").args(["-d", &format!("@{epoch}"), &uki_s]))?;
-    mt(&["mcopy", "-m", "-i", &esp, &uki_s, "::/EFI/BOOT/BOOTAA64.EFI"])?;
-    mt(&["mcopy", "-m", "-i", &esp, &uki_s, "::/EFI/rim/rim-A.efi"])?;
+    if let Some(esp_size) = t.disk.esp {
+        let uki = work.join("rim-A.efi");
+        sh::run(
+            Command::new("ukify")
+                .arg("build")
+                .arg(format!("--linux={}", kernel_image.display()))
+                .arg(format!("--stub={STUB}"))
+                .arg(format!("--cmdline={cmdline}"))
+                .arg("--os-release=NAME=rim\nID=rim\nPRETTY_NAME=rim v1\n")
+                .arg(format!("--output={}", uki.display())),
+        )?;
+
+        let esp_sectors = esp_size.0 / SECTOR;
+        File::create(&esp_img).and_then(|f| f.set_len(esp_size.0)).map_err(|e| e.to_string())?;
+        let mt = |args: &[&str]| -> Result<(), String> {
+            sh::run(Command::new(args[0]).args(&args[1..]).env("SOURCE_DATE_EPOCH", epoch).env("MTOOLS_SKIP_CHECK", "1"))
+        };
+        let esp = esp_img.to_string_lossy().into_owned();
+        let serial = format!("{:08x}", ids::fat_serial(&bytes, "fs:esp"));
+        mt(&["mformat", "-i", &esp, "-F", "-v", "ESP", "-N", &serial, "-T", &esp_sectors.to_string(), "-h", "64", "-s", "32", "::"])?;
+        mt(&["mmd", "-i", &esp, "::/EFI", "::/EFI/BOOT", "::/EFI/rim"])?;
+        let uki_s = uki.to_string_lossy().into_owned();
+        sh::run(Command::new("touch").args(["-d", &format!("@{epoch}"), &uki_s]))?;
+        mt(&["mcopy", "-m", "-i", &esp, &uki_s, "::/EFI/BOOT/BOOTAA64.EFI"])?;
+        mt(&["mcopy", "-m", "-i", &esp, &uki_s, "::/EFI/rim/rim-A.efi"])?;
+    }
 
     // 5. data (пустая ext4)
     let data_img = work.join("data.img");
@@ -147,8 +148,14 @@ pub fn build(root: &Path, manifest_path: &Path, target: &str, out: &Path) -> Res
     };
     put(0, &head)?;
     put(total - 33, &tail)?;
-    for (p, img) in parts.iter().zip([Some(&esp_img), Some(&root_img), None, Some(&data_img)]) {
-        let Some(img) = img else { continue };
+    for p in &parts {
+        // По метке, а не по позиции: без ESP разделы сдвигаются. root-B пуст (слот для обновления).
+        let img = match p.label {
+            "esp" => &esp_img,
+            "root-A" => &root_img,
+            "data" => &data_img,
+            _ => continue,
+        };
         let data = fs::read(img).map_err(|e| format!("{}: {e}", img.display()))?;
         let cap = (p.last_lba - p.first_lba + 1) * SECTOR;
         if data.len() as u64 > cap {
@@ -158,6 +165,16 @@ pub fn build(root: &Path, manifest_path: &Path, target: &str, out: &Path) -> Res
     }
     drop(f);
     fs::rename(&tmp, out).map_err(|e| e.to_string())?;
+
+    // direct: ядро и конфиг Firecracker рядом с образом, пути в JSON — имена соседних файлов.
+    if t.boot == Boot::Direct {
+        let name = |ext: &str| out.with_extension(ext);
+        let file_name = |p: &Path| p.file_name().expect("имя файла").to_string_lossy().into_owned();
+        let kernel_out = name("Image");
+        fs::copy(&kernel_image, &kernel_out).map_err(|e| format!("{}: {e}", kernel_out.display()))?;
+        let json = bootargs::firecracker_json(&file_name(&kernel_out), &file_name(out), &cmdline);
+        fs::write(name("firecracker.json"), json).map_err(|e| e.to_string())?;
+    }
 
     let digest: String =
         Sha256::digest(fs::read(out).map_err(|e| e.to_string())?).iter().map(|b| format!("{b:02x}")).collect();
