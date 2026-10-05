@@ -38,8 +38,9 @@ net = { ... }
 
 - `./rim --arch x86_64 <команда>`: тот же `docker/Dockerfile`, собранный под `linux/amd64`
   (на Apple Silicon — Rosetta через OrbStack/Docker Desktop), образ `rim-toolchain-x86_64`,
-  отдельный том cargo и `CARGO_TARGET_DIR=out/cargo-linux-<arch>`. `CARGO_BUILD_TARGET`
-  переезжает из Dockerfile в обёртку: `<arch>-alpine-linux-musl`.
+  отдельный том cargo и `CARGO_TARGET_DIR=out/cargo-linux-<arch>`. `CARGO_BUILD_TARGET` и
+  `CARGO_TARGET_DIR` задаются в Dockerfile через `ARG RIM_ARCH`/`RIM_CARGO_DIR` (после `RUN`,
+  значения по умолчанию прежние — id тулчейна arm64 не меняется).
 - `rim-build build` сверяет `target.arch` с архитектурой, под которой запущен
   (`std::env::consts::ARCH`); при несовпадении — ошибка с подсказкой `./rim --arch …`.
 - Кэш пакетов уже разделён: в ключ входит id тулчейна, а он у двух платформ разный.
@@ -59,15 +60,18 @@ net = { ... }
 ## Ядро x86_64 (`pkgs/linux/x86_64.config`)
 
 allnoconfig + 64BIT, SMP, HYPERVISOR_GUEST, PARAVIRT, KVM_GUEST, PVH (чтобы QEMU грузил
-`vmlinux`), X86_MPPARSE, virtio-mmio с cmdline-устройствами, virtio-blk/net, 8250-консоль,
+`vmlinux`), ACPI (Firecracker >= 1.8 описывает устройства в ACPI, MPTable устарел и уйдёт в 2.0),
+X86_MPPARSE (для старых версий), virtio-mmio с cmdline-устройствами, virtio-blk/net, 8250-консоль,
 RTC_DRV_CMOS + HCTOSYS (для QEMU), IP_PNP, erofs, ext4, GPT, devtmpfs, tmpfs, seccomp/landlock —
-общая часть как у arm64. Без PCI, ACPI, EFI, VT, USB, DRM. `check-config.sh` как для arm64.
+общая часть как у arm64. Без PCI, EFI, VT, USB, DRM. `check-config.sh` как для arm64.
 
 ## Проверка
 
 - Юнит: манифест (`arch` по умолчанию aarch64; x86_64 + uefi-uki — ошибка), layout (тип root
   по arch), bootargs (точная cmdline x86), `poweroff_as_reboot`.
-- `ARCH=x86_64 scripts/test-boot-fc.sh`: `qemu-system-x86_64 -M microvm,acpi=off,rtc=on -no-reboot`
+- `ARCH=x86_64 scripts/test-boot-fc.sh`: `qemu-system-x86_64 -M microvm,acpi=off,rtc=on -no-reboot -device i8042`
+  (путь MPTable; путь ACPI под TCG не грузится — нет источника калибровки TSC — и проверяется
+  только на настоящем Firecracker)
   (TCG — без ускорения на Apple Silicon, таймауты больше, время не показательно), те же проверки,
   кроме драйвера OF-8250; `poweroff` → VM завершилась.
 - Детерминизм x86 fc (cmp трёх артефактов); регрессия: arm64 `test-boot-fc.sh` 13/13,

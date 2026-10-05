@@ -50,8 +50,10 @@ T0="$(now)"
 if [ "$ARCH" = aarch64 ]; then
   VM=(qemu-system-aarch64 -M virt,acpi=off -accel hvf -cpu host)
 else
-  # microvm: virtio-mmio без PCI, как Firecracker. i8042 — им Firecracker ловит reboot=k;
+  # microvm: virtio-mmio без PCI, как Firecracker; i8042 — им Firecracker ловит reboot=k;
   # -no-reboot: сброс завершает QEMU, как процесс firecracker.
+  # acpi=off (MPTable): с ACPI под TCG ядру не на чем откалибровать TSC (kvmclock нет, PIT выключен,
+  # а pit=on сбрасывает гостя). Путь ACPI Firecracker >= 1.8 проверяется только на настоящем хосте.
   VM=(qemu-system-x86_64 -M microvm,acpi=off,rtc=on -accel tcg -cpu max -no-reboot -device i8042)
 fi
 "${VM[@]}" -smp 1 -m 256M \
@@ -79,6 +81,9 @@ no_such_driver() { rsh 'test -d /sys/bus/platform/drivers/no_such_driver'; }
 clock_is_current() { [ "$(rsh 'date +%Y')" -ge 2026 ]; }
 qemu_exits() { for _ in $(seq 1 $((TRIES / 5))); do kill -0 "$QPID" 2>/dev/null || return 0; sleep 1; done; return 1; }
 data_unmounts() { grep -q 'EXT4-fs (vda3): unmounting filesystem' "$LOG"; }
+# Выход VM при панике тоже «завершил VM» — требуем штатную строку ядра.
+clean_exit() { case "$ARCH" in aarch64) grep -q 'reboot: Power down' "$LOG" ;; *) grep -q 'reboot: Restarting system' "$LOG" ;; esac; }
+poweroff_flag() { rsh 'cat /proc/cmdline' | grep -qw 'rim.poweroff=reboot'; }
 
 check "rim: ready"                            wait_ready
 check "ssh по ключу"                          wait_ssh
@@ -91,11 +96,15 @@ check "часы из RTC, не 1970"                  clock_is_current
 if [ "$ARCH" = aarch64 ]; then
   check "драйвер 8250/OF (ttyS0) встроен"     of_serial_built_in
   no_such_driver && { echo "FAIL контрольная проверка драйвера ложно-зелёная"; FAILED=1; }
+  poweroff_flag && { echo "FAIL rim.poweroff=reboot не должен быть на aarch64"; FAILED=1; }
+else
+  check "rim.poweroff=reboot в cmdline"       poweroff_flag
 fi
 rsh 'cd /data/root && exec sleep 600' >/dev/null 2>&1 & sleep 1
 rsh poweroff >/dev/null 2>&1
 check "poweroff завершает VM"                 qemu_exits
 check "poweroff при открытой сессии: /data отмонтирован" data_unmounts
+check "VM завершилась штатно, не паникой"     clean_exit
 
 [ -n "$T_READY" ] && printf 'время: до rim: ready %.2f с, до ssh %.2f с (QEMU %s, не Firecracker)\n' \
   "$(echo "$T_READY - $T0" | bc)" "$(echo "${T_SSH:-$T_READY} - $T0" | bc)" "$ARCH"
