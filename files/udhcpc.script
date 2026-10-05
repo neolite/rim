@@ -1,0 +1,21 @@
+#!/bin/sh
+# Вызывается udhcpc. Корень только для чтения, поэтому resolv.conf пишем в /run.
+case "$1" in
+  deconfig)
+    ip -4 addr flush dev "$interface"
+    ip link set "$interface" up
+    ;;
+  bound|renew)
+    ip -4 addr flush dev "$interface"
+    ip -4 addr add "$ip/${mask:-24}" dev "$interface"
+    if [ -n "$router" ]; then
+      gw="${router%% *}"
+      # У Hetzner адрес /32, а шлюз вне подсети: сначала маршрут до шлюза.
+      ip route replace "$gw" dev "$interface"
+      ip route replace default via "$gw" dev "$interface"
+    fi
+    : > /run/resolv.conf
+    for d in $dns; do echo "nameserver $d" >> /run/resolv.conf; done
+    echo "rim: $interface $ip/${mask:-24} via ${router:-none}"
+    ;;
+esac
