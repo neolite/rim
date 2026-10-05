@@ -42,6 +42,11 @@ kill_sshd_listener() {
 }
 fingerprint() { rsh 'dropbearkey -y -f /data/ssh/host_ed25519' | grep Fingerprint; }
 qemu_exits() { for _ in $(seq 1 20); do kill -0 "$QPID" 2>/dev/null || return 0; sleep 1; done; return 1; }
+clock_is_current() { [ "$(rsh 'date +%Y')" -ge 2026 ]; }
+# Ядро печатает это только при успешном umount; без него ext4 ушёл в reboot смонтированным rw.
+data_unmounts() { [ "$(grep -c 'EXT4-fs (vda4): unmounting filesystem' "$LOG")" -ge "$1" ]; }
+# Сессия, держащая /data занятым (cwd = HOME = /data/root), как живой пользователь VPS.
+hold_session() { rsh 'cd /data/root && exec sleep 600' >/dev/null 2>&1 & sleep 1; }
 
 check "rim: ready за 30 с"                  wait_ready 1 30
 check "ssh по ключу"                        wait_ssh
@@ -49,21 +54,26 @@ check "корень только для чтения"            root_is_readonl
 check "hostname из манифеста"               hostname_ok
 check "SUID-бинарников нет"                 no_suid
 check "пароль не принимается"               password_refused
+check "часы из RTC, не 1970"                clock_is_current
 
 FP1="$(fingerprint)"
 kill_sshd_listener >/dev/null 2>&1
 sleep 3
 check "упавший sshd перезапущен"            wait_ssh
 
+hold_session
 rsh reboot >/dev/null 2>&1
 STRICT=yes                                  # дальше ssh требует прежний ключ хоста
 check "после reboot снова ready"            wait_ready 2 60
+check "reboot при открытой сессии: /data отмонтирован" data_unmounts 1
 check "ssh после reboot с прежним ключом"   wait_ssh
 FP2="$(fingerprint)"
 check "отпечаток ключа хоста не изменился"  test -n "$FP1" -a "$FP1" = "$FP2"
 
+hold_session
 rsh poweroff >/dev/null 2>&1
 check "poweroff завершает QEMU"             qemu_exits
+check "poweroff при открытой сессии: /data отмонтирован" data_unmounts 2
 
 if [ $FAILED -ne 0 ]; then
   echo "--- serial.log (хвост) ---"; tail -40 "$LOG"

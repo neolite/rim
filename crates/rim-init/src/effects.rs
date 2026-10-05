@@ -20,6 +20,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
 const MANIFEST: &str = "/etc/rim/system.toml";
+/// Потолок лога одного сервиса; вместе с `.1` — не больше 2 МиБ на сервис в /data.
+const LOG_CAP: u64 = 1 << 20;
 
 struct Console(Mutex<Vec<File>>);
 
@@ -219,8 +221,7 @@ fn spawn(m: &rim_manifest::Manifest, name: &str, console: &Arc<Console>, now: u6
     }
     match cmd.spawn() {
         Ok(mut child) => {
-            let log = OpenOptions::new().create(true).append(true).open(format!("/data/log/{name}.log")).ok();
-            let log = Arc::new(Mutex::new(log));
+            let log = Arc::new(Mutex::new(setup::CappedLog::open(format!("/data/log/{name}.log"), LOG_CAP)));
             if let Some(out) = child.stdout.take() {
                 pump(out, name, console.clone(), log.clone());
             }
@@ -236,24 +237,58 @@ fn spawn(m: &rim_manifest::Manifest, name: &str, console: &Arc<Console>, now: u6
     }
 }
 
-fn pump(src: impl Read + Send + 'static, name: &str, console: Arc<Console>, log: Arc<Mutex<Option<File>>>) {
-    let name = name.to_string();
-    std::thread::spawn(move || {
-        for line in BufReader::new(src).lines().map_while(Result::ok) {
-            console.line(&format!("[{name}] {line}"));
-            if let Ok(mut guard) = log.lock() {
-                if let Some(f) = guard.as_mut() {
-                    let _ = writeln!(f, "{line}");
-                }
+fn pump(src: impl Read + Send + 'static, name: &str, console: Arc<Console>, log: Arc<Mutex<setup::CappedLog>>) {
+    let tag = name.to_string();
+    // Builder, а не thread::spawn: тот паникует, если поток не создать (ENOMEM/EAGAIN),
+    // а паника в PID 1 при panic=abort — это kernel panic. Без потока труба закроется,
+    // сервис получит SIGPIPE и уйдёт в backoff — это лучше, чем ронять систему.
+    let res = std::thread::Builder::new().name(format!("log-{name}")).spawn(move || {
+        setup::for_each_line(BufReader::new(src), |line| {
+            console.line(&format!("[{tag}] {line}"));
+            if let Ok(mut l) = log.lock() {
+                l.line(line);
             }
-        }
+        });
     });
+    if res.is_err() {
+        eprintln!("rim: [{name}] не создать поток логов");
+    }
+}
+
+/// Ждёт, пока не останется ни одного потомка (ECHILD), не дольше `secs`.
+fn reap_all(secs: u64) -> bool {
+    let until = Instant::now() + std::time::Duration::from_secs(secs);
+    loop {
+        match waitpid(Pid::from_raw(-1), Some(WaitPidFlag::WNOHANG)) {
+            Err(nix::errno::Errno::ECHILD) => return true,
+            Ok(WaitStatus::StillAlive) | Err(_) => {
+                if Instant::now() >= until {
+                    return false;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Ok(_) => {}
+        }
+    }
 }
 
 fn finish(kind: ShutdownKind, console: &Console) -> ! {
     console.line("rim: выключение");
+    // Сервисы уже остановлены супервизором, но живы ssh-сессии и всё, что из них запущено
+    // (и держит /data). kill(-1) из PID 1 бьёт всех, кроме самого init.
+    let _ = kill(Pid::from_raw(-1), Signal::SIGTERM);
+    if !reap_all(5) {
+        let _ = kill(Pid::from_raw(-1), Signal::SIGKILL);
+        reap_all(2);
+    }
     sync();
-    let _ = umount("/data");
+    match umount("/data") {
+        Ok(()) => console.line("rim: /data отмонтирован"),
+        Err(e) => {
+            let ro = mount(None::<&str>, "/data", None::<&str>, MsFlags::MS_REMOUNT | MsFlags::MS_RDONLY, None::<&str>);
+            console.line(&format!("rim: umount /data: {e}; перемонтирование ro: {ro:?}"));
+        }
+    }
     sync();
     let mode = match kind {
         ShutdownKind::Poweroff => RebootMode::RB_POWER_OFF,
