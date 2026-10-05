@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Всё, что собирает rim, работает в контейнере: на хосте нужен только Docker.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+docker info >/dev/null 2>&1 || { echo "rim: Docker не запущен" >&2; exit 1; }
+docker build -q -t rim-toolchain "$ROOT/docker" >/dev/null
+# ID образа меняется на каждой сборке (дата в конфиге), слои — нет: их и берём ключом кэша.
+TOOLCHAIN_ID="$(docker image inspect -f '{{json .RootFS.Layers}}' rim-toolchain | shasum -a 256 | cut -d' ' -f1)"
+BIN=/rim/out/cargo-linux/aarch64-alpine-linux-musl/release
+
+TTY=(); [ -t 1 ] && TTY=(-t)
+exec docker run --rm ${TTY[@]+"${TTY[@]}"} \
+  -v "$ROOT:/rim" -v rim-cargo:/cargo \
+  -e RIM_TOOLCHAIN_ID="$TOOLCHAIN_ID" \
+  -e RIM_INIT_BIN="$BIN/rim-init" \
+  rim-toolchain sh -c 'cargo build -q --release -p rim-init -p rim-build && exec '"$BIN"'/rim-build "$@"' rim "$@"
