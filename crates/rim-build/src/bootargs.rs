@@ -28,6 +28,23 @@ pub fn cmdline(boot: Boot, arch: Arch, net: Option<&Net>, root_partuuid: &str) -
     s
 }
 
+/// Имя ядра в пакете (`boot/<имя>`) и расширение рядом с образом. Firecracker на aarch64
+/// берёт PE `Image`, на x86_64 — несжатый ELF `vmlinux`.
+pub fn kernel_file(arch: Arch) -> &'static str {
+    match arch {
+        Arch::Aarch64 => "Image",
+        Arch::X86_64 => "vmlinux",
+    }
+}
+
+/// Пакеты собираются тулчейном той архитектуры, под которой запущен сборщик.
+pub fn check_arch(want: Arch, host: &str) -> Result<(), String> {
+    if want.as_str() == host {
+        return Ok(());
+    }
+    Err(format!("таргет для {}, а тулчейн {host}: запускайте ./rim --arch {} build ...", want.as_str(), want.as_str()))
+}
+
 fn json_str(s: &str) -> String {
     let mut out = String::from('"');
     for c in s.chars() {
@@ -167,5 +184,19 @@ mod tests {
                  ip=10.0.2.15::10.0.2.2:255.255.255.0::eth0:off:10.0.2.3"
             )
         );
+    }
+
+    #[test]
+    fn kernel_file_per_arch() {
+        assert_eq!(kernel_file(Arch::Aarch64), "Image");
+        assert_eq!(kernel_file(Arch::X86_64), "vmlinux");
+    }
+
+    #[test]
+    fn arch_mismatch_is_reported_with_hint() {
+        assert_eq!(check_arch(Arch::Aarch64, "aarch64"), Ok(()));
+        assert_eq!(check_arch(Arch::X86_64, "x86_64"), Ok(()));
+        let e = check_arch(Arch::X86_64, "aarch64").unwrap_err();
+        assert!(e.contains("./rim --arch x86_64"), "{e}");
     }
 }

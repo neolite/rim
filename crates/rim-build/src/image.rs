@@ -23,6 +23,7 @@ pub fn build(root: &Path, manifest_path: &Path, target: &str, out: &Path) -> Res
     let text = String::from_utf8(bytes.clone()).map_err(|_| "манифест не UTF-8".to_string())?;
     let m = rim_manifest::parse(&text).map_err(|e| format!("{}: {e}", manifest_path.display()))?;
     let t = m.target.get(target).ok_or_else(|| format!("нет [target.{target}]"))?;
+    bootargs::check_arch(t.arch, std::env::consts::ARCH)?;
     let tc = std::env::var("RIM_TOOLCHAIN_ID").unwrap_or_else(|_| "dev".into());
     // Единственный источник — ENV тулчейна (docker/Dockerfile): он же входит в ключ кэша пакетов.
     let epoch = std::env::var("SOURCE_DATE_EPOCH").map_err(|_| "SOURCE_DATE_EPOCH не задан (запускайте через ./rim)")?;
@@ -76,7 +77,7 @@ pub fn build(root: &Path, manifest_path: &Path, target: &str, out: &Path) -> Res
     let (parts, total) = layout::plan(&t.disk, t.arch);
     let part_guid = |label: &str| ids::derive(&bytes, &format!("part:{label}"));
     let cmdline = bootargs::cmdline(t.boot, t.arch, t.net.as_ref(), &ids::to_string(&part_guid("root-A")));
-    let kernel_image = kdir.join("boot/Image");
+    let kernel_image = kdir.join("boot").join(bootargs::kernel_file(t.arch));
 
     // 3–4. UKI и ESP — только при загрузке через UEFI; при direct ядро даёт гипервизор.
     let esp_img = work.join("esp.img");
@@ -170,7 +171,7 @@ pub fn build(root: &Path, manifest_path: &Path, target: &str, out: &Path) -> Res
     if t.boot == Boot::Direct {
         let name = |ext: &str| out.with_extension(ext);
         let file_name = |p: &Path| p.file_name().expect("имя файла").to_string_lossy().into_owned();
-        let kernel_out = name("Image");
+        let kernel_out = name(bootargs::kernel_file(t.arch));
         fs::copy(&kernel_image, &kernel_out).map_err(|e| format!("{}: {e}", kernel_out.display()))?;
         let json = bootargs::firecracker_json(&file_name(&kernel_out), &file_name(out), &cmdline);
         fs::write(name("firecracker.json"), json).map_err(|e| e.to_string())?;
