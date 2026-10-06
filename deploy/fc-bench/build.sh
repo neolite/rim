@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Выполняется на хосте замера под root (его запускает scripts/fc-bench.sh): собирает нативно для
 # x86_64 три гостя — rim, rim + lockbox-node, обычный Alpine — и кладёт всё для remote.sh в art/.
-# Ожидает рядом rim/ и lockbox/ — распакованные исходники.
+# Раскладка на хосте: ~/b/{rim,lockbox} — распакованные исходники, сам скрипт в ~/b/rim/deploy/fc-bench.
 set -euo pipefail
-B="$(cd "$(dirname "$0")" && pwd)"
+B="$(cd "$(dirname "$0")/../../.." && pwd)"
+[ -f "$B/lockbox/go.mod" ] && [ -x "$B/rim/rim" ] || { echo "нет $B/lockbox или $B/rim"; exit 1; }
 A="$B/art"; R="$B/rim"
 mkdir -p "$A"
 command -v docker >/dev/null || { apt-get update -q >/dev/null; DEBIAN_FRONTEND=noninteractive apt-get install -yq docker.io >/dev/null; }
