@@ -2,13 +2,14 @@
 # c8i/m8i/r8i умеют вложенную виртуализацию (с 02.2026): /dev/kvm внутри обычной VM.
 # Предохранители: инстанс сам выключается через max_hours и при выключении удаляется.
 #
-#   terraform init && terraform apply -var my_ip=$(curl -s https://checkip.amazonaws.com)/32
+#   terraform init && terraform apply -var profile=dev      # IP для ssh определится сам
 #   ... замер (scripts/fc-bench.sh) ...
 #   terraform destroy
 
 terraform {
   required_providers {
-    aws = { source = "hashicorp/aws", version = ">= 6.67" }
+    aws  = { source = "hashicorp/aws", version = ">= 6.67" }
+    http = { source = "hashicorp/http", version = ">= 3.4" }
   }
 }
 
@@ -26,7 +27,17 @@ variable "instance_type" {
 }
 variable "my_ip" {
   type        = string
-  description = "Ваш IP в виде a.b.c.d/32 — ssh только с него"
+  default     = ""
+  description = "Ваш IP в виде a.b.c.d/32 — ssh только с него; пусто — узнать через checkip.amazonaws.com"
+}
+
+data "http" "my_ip" {
+  count = var.my_ip == "" ? 1 : 0
+  url   = "https://checkip.amazonaws.com"
+}
+
+locals {
+  my_ip = var.my_ip != "" ? var.my_ip : "${chomp(data.http.my_ip[0].response_body)}/32"
 }
 variable "ssh_public_key" {
   type    = string
@@ -65,7 +76,7 @@ resource "aws_security_group" "ssh" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = [var.my_ip]
+    cidr_blocks = [local.my_ip]
   }
   egress {
     from_port   = 0
@@ -95,6 +106,10 @@ resource "aws_instance" "host" {
   user_data = "#!/bin/sh\nshutdown -h +${var.max_hours * 60}\n"
 
   tags = { Name = "rim-bench" }
+}
+
+output "ssh_allowed_from" {
+  value = local.my_ip
 }
 
 output "ip" {
