@@ -22,7 +22,7 @@ variable "region" {
 }
 variable "instance_type" {
   type    = string
-  default = "c8i.large"
+  default = "c8i.xlarge" # 4 vCPU: на хосте собираются ядро, rim и lockbox
 }
 variable "my_ip" {
   type        = string
@@ -87,7 +87,7 @@ resource "aws_instance" "host" {
   }
 
   root_block_device {
-    volume_size = 20
+    volume_size = 30
     volume_type = "gp3"
   }
 

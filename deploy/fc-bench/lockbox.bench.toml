@@ -1,0 +1,21 @@
+# rim + узел lockbox для замера в Firecracker (scripts/fc-bench.sh). Пакет lockbox собирается на
+# хосте замера из исходников lockbox (build.sh) и в репозиторий rim не входит.
+# dropbear здесь только для замера (статистика, выключение); узлу в проде ssh не нужен.
+# -insecure-no-mtls: порт виден только с хоста по tap0; в проде — -tls-cert/-tls-key/-tls-client-ca.
+[system]
+hostname = "lockbox-bench"
+packages = ["busybox", "dropbear", "lockbox"]
+ssh_authorized_keys = ["ssh-ed25519 TEST-KEY-PLACEHOLDER"]
+
+[service.sshd]
+exec = ["/bin/dropbear", "-F", "-s", "-g", "-p", "22", "-P", "/run/dropbear.pid", "-r", "/data/ssh/host_ed25519"]
+
+[service.lockbox]
+exec = ["/bin/lockbox-node", "-grpc-addr", ":50051", "-data-dir", "/data/lockbox", "-insecure-no-mtls"]
+
+[target.fc-x86]
+boot = "direct"
+arch = "x86_64"
+kernel = "linux"
+disk = { root = "128M", data = "64M" }
+net = { address = "172.16.0.2/30", gateway = "172.16.0.1", dns = "1.1.1.1" }

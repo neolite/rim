@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Выполняется на хосте замера под root (его запускает scripts/fc-bench.sh): ставит Firecracker,
-# поднимает tap0 и N раз грузит каждого гостя. Выход: results.txt — "<система> <до ssh, с> <выключение, с>".
+# Выполняется на хосте замера под root из art/ (собран build.sh): ставит Firecracker, поднимает tap0
+# и N раз грузит каждого гостя. Выход: results.txt — "<система> <готов, с> <выключение, с>".
+# Готов: rim и alpine — sshd прислал баннер; lockbox — gRPC-сервер ответил на HTTP/2-рукопожатие.
 set -euo pipefail
 cd "$(dirname "$0")"
 N="${1:-20}"
@@ -28,6 +29,18 @@ except Exception:
     sys.exit(1)
 EOF
 }
+grpc() { python3 - <<'EOF'
+import socket, sys
+try:
+    s = socket.create_connection(("172.16.0.2", 50051), 0.2); s.settimeout(0.3)
+    # Преамбула HTTP/2 + пустой SETTINGS; живой gRPC-сервер отвечает своим SETTINGS (тип 4).
+    s.sendall(b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n" + b"\x00\x00\x00\x04\x00\x00\x00\x00\x00")
+    h = s.recv(9)
+    sys.exit(0 if len(h) == 9 and h[3] == 4 else 1)
+except Exception:
+    sys.exit(1)
+EOF
+}
 gsh() { ssh -i key -o BatchMode=yes -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
   -o LogLevel=ERROR -o ConnectTimeout=5 root@172.16.0.2 "$@"; }
 
@@ -48,20 +61,26 @@ print(json.dumps({
 EOF
 }
 
-RIM_ARGS="$(python3 -c 'import json; print(json.load(open("rim-fc.firecracker.json"))["boot-source"]["boot_args"])')"
+args() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["boot-source"]["boot_args"])' "$1"; }
+RIM_ARGS="$(args rim-fc.firecracker.json)"
+LBX_ARGS="$(args lockbox-fc.firecracker.json)"
 ALP_ARGS="console=ttyS0 reboot=k panic=10 root=/dev/vda rootfstype=ext4 modules=virtio_blk,ext4"
 
 run() {  # run <система> <образ> → "<до ssh> <выключение>" или FAIL
   local sys="$1" img="$2"
   case "$sys" in
-    rim)    config rim-fc.vmlinux "$img" "$RIM_ARGS" > run.json ;;
-    alpine) config alpine.vmlinuz "$img" "$ALP_ARGS" alpine.initramfs > run.json ;;
+    rim)     config rim-fc.vmlinux "$img" "$RIM_ARGS" > run.json ;;
+    lockbox) config lockbox-fc.vmlinux "$img" "$LBX_ARGS" > run.json ;;
+    alpine)  config alpine.vmlinuz "$img" "$ALP_ARGS" alpine.initramfs > run.json ;;
   esac
   local t0 tb="" ts
   t0=$(now)
   firecracker --no-api --config-file run.json > "$sys.console.log" 2>&1 &
   local fc=$!
-  for _ in $(seq 1 600); do banner && { tb=$(now); break; }; sleep 0.05; done
+  local ready=banner; [ "$sys" = lockbox ] && ready=grpc
+  for _ in $(seq 1 600); do $ready && { tb=$(now); break; }; sleep 0.05; done
+  # ssh нужен и lockbox-гостю: через него статистика и выключение.
+  [ -n "$tb" ] && for _ in $(seq 1 200); do banner && break; sleep 0.05; done
   if [ -z "$tb" ] || ! gsh true; then kill "$fc" 2>/dev/null; wait "$fc" 2>/dev/null; echo FAIL; return; fi
   [ -n "${STATS:-}" ] && gsh "$STATS" > "$sys.stats"
   ts=$(now)
@@ -73,10 +92,10 @@ run() {  # run <система> <образ> → "<до ssh> <выключени
 }
 
 : > results.txt
-for sys in rim alpine; do
+for sys in rim lockbox alpine; do
   base="$sys.img"
   run "$sys" "$base" >/dev/null   # прогрев: первая загрузка (rim создаёт ключ хоста)
-  STATS='awk "/MemTotal/{t=\$2}/MemAvailable/{a=\$2}END{print \"ram_used_mib\",int((t-a)/1024)}" /proc/meminfo; df -k / | awk "NR==2{print \"root_used_kib\",\$3}"; uname -r'
+  STATS='awk "/MemTotal/{t=\$2}/MemAvailable/{a=\$2}END{print \"ram_used_mib\",int((t-a)/1024)}" /proc/meminfo; df -k / | awk "NR==2{print \"root_used_kib\",\$3}"; uname -r; p=$(pidof lockbox-node) && awk "/VmRSS/{print \"lockbox_rss_mib\",int(\$2/1024)}" /proc/$p/status; echo procs $(ls -d /proc/[0-9]* | wc -l)'
   run "$sys" "$base" >/dev/null; unset STATS
   for i in $(seq 1 "$N"); do
     cp "$base" run.img
